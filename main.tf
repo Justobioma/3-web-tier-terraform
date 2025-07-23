@@ -1,3 +1,5 @@
+# Basic VPC and Subnet Setup for Web Tier
+
 resource "aws_vpc" "web_vpc" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
@@ -35,6 +37,7 @@ resource "aws_route_table_association" "public_rt_assoc" {
   route_table_id = aws_route_table.public_rt.id
 }
 
+
 # Security Group for Web Tier
 
 resource "aws_security_group" "web_sg" {
@@ -66,4 +69,40 @@ resource "aws_security_group" "web_sg" {
   tags = {
     Name = "web-tier-sg"
   }
+}
+
+# EC2 Instance for Web Tier Setup
+
+resource "aws_instance" "web_server" {
+  ami                    = "ami-0c55b159cbfafe1f0" # Replace with a dynamic AMI later
+  instance_type          = "t2.micro"
+  subnet_id              = aws_subnet.public_subnet.id
+  key_name               = "obioma-key" # Replace with your actual key pair
+  vpc_security_group_ids = [aws_security_group.web_sg.id]
+
+  user_data = <<-EOF
+              #!/bin/bash
+              sudo apt update -y
+              sudo apt install nginx -y
+              sudo systemctl enable nginx
+              sudo systemctl start nginx
+              EOF
+
+  tags = {
+    Name = "web-tier-server"
+  }
+}
+
+/* resource "aws_eip" "web_eip" {
+  instance = aws_instance.web_server.id
+  vpc      = true
+} */
+
+# Output parameters
+output "web_server_ip" {
+  value = aws_eip.web_eip.public_ip
+}
+
+output "web_server_id" {
+  value = aws_instance.web_server.id
 }

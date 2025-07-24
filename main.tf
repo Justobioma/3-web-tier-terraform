@@ -74,7 +74,7 @@ resource "aws_security_group" "web_sg" {
 # EC2 Instance for Web Tier Setup
 
 resource "aws_instance" "web_server" {
-  ami                    = "ami-01f23391a59163da9 (64-bit (x86))" # Replace with a dynamic AMI later
+  ami                    = "ami-01f23391a59163da9" # Replace with a dynamic AMI later
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.public_subnet.id
  // key_name               = "saa-lab1" # Replace with your actual key pair
@@ -197,7 +197,7 @@ resource "aws_security_group" "app_sg" {
 # EC2 Instances for App Tier Setup
 
 resource "aws_instance" "node_app" {
-  ami                    = "ami-01f23391a59163da9 (64-bit (x86))" # Ubuntu or Amazon Linux
+  ami                    = "ami-01f23391a59163da9" # Ubuntu or Amazon Linux
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.private_subnet_a.id
   vpc_security_group_ids = [aws_security_group.app_sg.id]

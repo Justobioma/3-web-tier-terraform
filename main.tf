@@ -80,13 +80,13 @@ resource "aws_instance" "web_server" {
  // key_name               = "saa-lab1" # Replace with your actual key pair
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
-  user_data = <<-EOF
-              #!/bin/bash
-              sudo apt update -y
-              sudo apt install nginx -y
-              sudo systemctl enable nginx
-              sudo systemctl start nginx
-              EOF
+    user_data = <<EOF
+  #!/bin/bash
+  sudo apt update -y
+  sudo apt install nginx -y
+  sudo systemctl enable nginx
+  sudo systemctl start nginx
+  EOF
 
   tags = {
     Name = "web-tier-server"
@@ -196,7 +196,7 @@ resource "aws_security_group" "app_sg" {
 
 # EC2 Instances for App Tier Setup
 
-resource "aws_instance" "node_app" {
+/* resource "aws_instance" "node_app" {
   ami                    = "ami-01f23391a59163da9" # Ubuntu or Amazon Linux
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.private_subnet_a.id
@@ -219,5 +219,100 @@ resource "aws_instance" "node_app" {
 
   tags = {
     Name = "node-backend-server"
+  }
+} */
+
+# Launch Template for App tier
+locals {
+  raw_data = <<-EOF
+        #!/bin/bash
+        sudo apt update -y
+        sudo apt install -y curl gnupg
+        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+        sudo apt install -y nodejs
+        mkdir -p /home/ubuntu/app
+        echo "const http = require('http');" >> /home/ubuntu/app/server.js
+        echo "const port = 3000;" >> /home/ubuntu/app/server.js
+        echo "http.createServer((req, res) => res.end('Hello from Node.js!')).listen(port);" >> /home/ubuntu/app/server.js
+        node /home/ubuntu/app/server.js &
+        EOF
+      encoded_script = base64encode(local.raw_data)
+}
+
+resource "aws_launch_template" "app_lt" {
+  name_prefix   = "node-app-lt-"
+  image_id      = "ami-01f23391a59163da9" # Replace with dynamic data source later
+  instance_type = "t2.micro"
+  //key_name      = "obioma-key"
+  vpc_security_group_ids = [aws_security_group.app_sg.id]
+
+   user_data = local.encoded_script
+}
+
+# Target Group + Internal Load balancer
+resource "aws_lb_target_group" "app_tg" {
+  name     = "app-tg"
+  port     = 3000
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.web_vpc.id
+
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    port                = "3000"
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    interval            = 10
+    timeout             = 5
+  }
+}
+
+resource "aws_lb" "app_alb" {
+  name               = "app-internal-alb"
+  internal           = true
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.app_sg.id]
+  subnets            = [
+    aws_subnet.private_subnet_a.id,
+    aws_subnet.private_subnet_b.id
+  ]
+}
+
+resource "aws_lb_listener" "app_listener" {
+  load_balancer_arn = aws_lb.app_alb.arn
+  port              = 3000
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app_tg.arn
+  }
+}
+
+# Auto Scaling group
+resource "aws_autoscaling_group" "app_asg" {
+  name                      = "node-app-asg"
+  desired_capacity          = 2
+  max_size                  = 3
+  min_size                  = 1
+  vpc_zone_identifier       = [
+    aws_subnet.private_subnet_a.id,
+    aws_subnet.private_subnet_b.id
+  ]
+
+  launch_template {
+    id      = aws_launch_template.app_lt.id
+    version = "$Latest"
+  }
+
+  target_group_arns = [aws_lb_target_group.app_tg.arn]
+
+  health_check_type         = "EC2"
+  health_check_grace_period = 60
+
+  tag {
+    key                 = "Name"
+    value               = "NodeAppInstance"
+    propagate_at_launch = true
   }
 }

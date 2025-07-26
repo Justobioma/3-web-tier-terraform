@@ -77,7 +77,7 @@ resource "aws_instance" "web_server" {
   ami                    = "ami-01f23391a59163da9" # Replace with a dynamic AMI later
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.public_subnet.id
- // key_name               = "saa-lab1" # Replace with your actual key pair
+  key_name               = "obioma-key" # Replace with your actual key pair
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
     user_data = <<EOF
@@ -243,7 +243,7 @@ resource "aws_launch_template" "app_lt" {
   name_prefix   = "node-app-lt-"
   image_id      = "ami-01f23391a59163da9" # Replace with dynamic data source later
   instance_type = "t2.micro"
-  //key_name      = "obioma-key"
+  key_name      = "obioma-key"
   vpc_security_group_ids = [aws_security_group.app_sg.id]
 
    user_data = local.encoded_script
@@ -315,4 +315,37 @@ resource "aws_autoscaling_group" "app_asg" {
     value               = "NodeAppInstance"
     propagate_at_launch = true
   }
+}
+
+/* # New key pair for SSH access
+resource "aws_key_pair" "new_key" {
+  key_name   = "obioma-key"
+  public_key = file("~/.ssh/obioma-key.pub") # Ensure this file exists
+}
+ */
+# Create CloudWatch Metric Alarms for Auto Scaling
+
+resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+  alarm_name          = "high-cpu-app"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 120
+  statistic           = "Average"
+  threshold           = 70
+  alarm_description   = "Scale up when CPU > 70%"
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.app_asg.name
+  }
+
+  alarm_actions = [aws_autoscaling_policy.scale_out.arn]
+}
+
+resource "aws_autoscaling_policy" "scale_out" {
+  name                   = "scale-out"
+  adjustment_type        = "ChangeInCapacity"
+  autoscaling_group_name = aws_autoscaling_group.app_asg.name
+  scaling_adjustment     = 1
+  cooldown               = 300
 }

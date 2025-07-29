@@ -37,6 +37,18 @@ resource "aws_route_table_association" "public_rt_assoc" {
   route_table_id = aws_route_table.public_rt.id
 }
 
+# RDS Subnet Group
+resource "aws_db_subnet_group" "db_subnet_group" {
+  name       = "db-subnet-group"
+  subnet_ids = [
+    aws_subnet.private_subnet_a.id,
+    aws_subnet.private_subnet_b.id
+  ]
+
+  tags = {
+    Name = "db-subnet-group"
+  }
+}
 
 # Security Group for Web Tier
 
@@ -68,6 +80,32 @@ resource "aws_security_group" "web_sg" {
 
   tags = {
     Name = "web-tier-sg"
+  }
+}
+
+# Security Group for RDS(Database)
+
+resource "aws_security_group" "db_sg" {
+  name        = "db-tier-sg"
+  description = "Allow DB access from App tier only"
+  vpc_id      = aws_vpc.web_vpc.id
+
+  ingress {
+    from_port       = 3306 # change if using PostgreSQL (5432)
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "db-tier-sg"
   }
 }
 
@@ -107,6 +145,11 @@ output "web_server_id" {
   value = aws_instance.web_server.id
 }
 
+# DB Endpoint Output
+output "db_endpoint" {
+  value = aws_db_instance.app_db.endpoint
+}
+
 # Private Subnets for App Tier
 resource "aws_subnet" "private_subnet_a" {
   vpc_id                  = aws_vpc.web_vpc.id
@@ -115,7 +158,7 @@ resource "aws_subnet" "private_subnet_a" {
   map_public_ip_on_launch = false
 
   tags = {
-    Name = "app-tier-private-subnet-a"
+    Name = "app-tier-private-subnet-a" 
   }
 }
 
@@ -194,33 +237,26 @@ resource "aws_security_group" "app_sg" {
   }
 }
 
-# EC2 Instances for App Tier Setup
-
-/* resource "aws_instance" "node_app" {
-  ami                    = "ami-01f23391a59163da9" # Ubuntu or Amazon Linux
-  instance_type          = "t2.micro"
-  subnet_id              = aws_subnet.private_subnet_a.id
-  vpc_security_group_ids = [aws_security_group.app_sg.id]
-  //key_name               = "obioma-key"
-  associate_public_ip_address = false
-
-  user_data = <<-EOF
-              #!/bin/bash
-              sudo apt update -y
-              sudo apt install -y curl gnupg
-              curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-              sudo apt install -y nodejs
-              mkdir -p /home/ubuntu/app
-              echo "const http = require('http');" >> /home/ubuntu/app/server.js
-              echo "const port = 3000;" >> /home/ubuntu/app/server.js
-              echo "http.createServer((req, res) => res.end('Hello from Node.js!')).listen(port);" >> /home/ubuntu/app/server.js
-              node /home/ubuntu/app/server.js &
-              EOF
+# RDS Instance Setup
+resource "aws_db_instance" "app_db" {
+  identifier             = "node-app-db"
+  engine                 = "mysql"               # or "postgres"
+  instance_class         = "db.t3.micro"
+  allocated_storage      = 20
+ // name                   = "nodeappdb"
+  username               = "admin"
+  password               = "StrongPassword123!"  # Consider using SSM parameter store for secrets
+  db_subnet_group_name   = aws_db_subnet_group.db_subnet_group.name
+  vpc_security_group_ids = [aws_security_group.db_sg.id]
+  multi_az               = false
+  publicly_accessible    = false
+  skip_final_snapshot    = true
+  deletion_protection    = false
 
   tags = {
-    Name = "node-backend-server"
+    Name = "node-app-db-instance"
   }
-} */
+}
 
 # Launch Template for App tier
 locals {
@@ -317,12 +353,8 @@ resource "aws_autoscaling_group" "app_asg" {
   }
 }
 
-/* # New key pair for SSH access
-resource "aws_key_pair" "new_key" {
-  key_name   = "obioma-key"
-  public_key = file("~/.ssh/obioma-key.pub") # Ensure this file exists
-}
- */
+
+
 # Create CloudWatch Metric Alarms for Auto Scaling
 
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
@@ -349,3 +381,4 @@ resource "aws_autoscaling_policy" "scale_out" {
   scaling_adjustment     = 1
   cooldown               = 300
 }
+
